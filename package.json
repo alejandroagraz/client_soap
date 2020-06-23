@@ -1,0 +1,30 @@
+{
+  "name": "client_soap",
+  "version": "1.0.0",
+  "description": "Client Server Soap In Express",
+  "author": "Jose A Agraz G",
+  "private": true,
+  "scripts": {
+    "start": "nodemon ./bin/www"
+  },
+  "dependencies": {
+    "connect-multiparty": "^2.2.0",
+    "cookie-parser": "~1.4.4",
+    "debug": "~2.6.9",
+    "express": "~4.16.1",
+    "express-session": "^1.17.1",
+    "http-errors": "~1.6.3",
+    "jade": "~1.11.0",
+    "method-override": "^3.0.0",
+    "mongoose": "^5.7.13",
+    "morgan": "~1.9.1",
+    "nodemailer": "^6.4.6",
+    "rand-token": "^1.0.1",
+    "soap": "^0.31.0",
+    "strong-soap": "^2.0.0",
+    "validator": "^13.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^1.19.4"
+  }
+}
