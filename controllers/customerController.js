@@ -1,81 +1,25 @@
 'use strict'
 
 const validator = require('validator');
-const CutomerService = require('../services/cutomerService');
+const CreateSoapClient = require('../services/createSoapClientService');
+const {createToken, decodeToken} = require('../services/tokenService');
 const nodemailer = require('nodemailer');
 const randtoken = require('rand-token');
-// const path = require('path');
-var soap = require('strong-soap').soap;
+const bcrypt = require('bcryptjs');
+const soap = require('strong-soap').soap;
 
 var urlWsdlDoc = 'http://wsdl.doc/soapServer.wsdl';
 var options = {};
 
 var controller = {
 
-    registerCustomer: function (req, res) {
+    login: function (req, res){
+
         var params = req.body;
+
         try {
-            var validate_dni = !validator.isEmpty(params.dni);
-            var validate_name = !validator.isEmpty(params.name);
-            var validate_last_name = !validator.isEmpty(params.last_name);
-            var validate_phone = !validator.isEmpty(params.phone);
             var validate_email = !validator.isEmpty(params.email);
-
-        } catch (err) {
-            return res.status(200).send({
-                status: 'err',
-                message: 'Missing Data To Send'
-            });
-        }
-        if (validate_dni && validate_name && validate_last_name && validate_phone
-            && validate_email) {
-            var dataGet = {
-                dni: params.dni,
-                name: params.name,
-                last_name: params.last_name,
-                phone: params.phone,
-                email: params.email
-            };
-            CutomerService.soapServer(dataGet, res, 'registerCustomer');
-        } else {
-            return res.status(200).send({
-                status: 'err',
-                message: 'Data Not Validated'
-            });
-        }
-    },
-    rechargeWallet: function (req, res) {
-        var params = req.body;
-        try {
-            var validate_dni = !validator.isEmpty(params.dni);
-            var validate_phone = !validator.isEmpty(params.phone);
-            var validate_balance = !validator.isEmpty(params.balance);
-        } catch (err) {
-            return res.status(200).send({
-                status: 'err',
-                message: 'Missing Data To Send'
-            });
-        }
-        if (validate_dni && validate_phone && validate_balance) {
-            var dataGet = {
-                dni: params.dni,
-                phone: params.phone,
-                balance: params.balance
-            };
-            CutomerService.soapServer(dataGet, res, 'rechargeWallet');
-        } else {
-            return res.status(200).send({
-                status: 'err',
-                message: 'Data Not Validated'
-            });
-        }
-    },
-    payment: function (req, res) {
-        var params = req.body;
-        try {
-            var validate_dni = !validator.isEmpty(params.dni);
-            var validate_phone = !validator.isEmpty(params.phone);
-            var validate_amount_payable = !validator.isEmpty(params.amount_payable);
+            var validate_password = !validator.isEmpty(params.password);
 
         } catch (err) {
             return res.status(200).send({
@@ -84,14 +28,9 @@ var controller = {
             });
         }
 
-        if (validate_dni && validate_phone && validate_amount_payable) {
+        if (validate_email && validate_password) {
 
             soap.createClient(urlWsdlDoc, options, (err, client) => {
-                var dataGet = {
-                    dni: params.dni,
-                    phone: params.phone,
-                    amount_payable: params.amount_payable
-                };
 
                 if (err) {
                     return res.status(404).send({
@@ -100,109 +39,85 @@ var controller = {
                     });
                 }
 
-                client.payment(dataGet, (err, resp) => {
+                var setdata = {
+                    email: params.email,
+                };
+
+                client.login(setdata, (err, resp) => {
                     if (err) {
                         return res.status(500).send({
-                            status: 'err',
+                            status: err,
                             message: 'An Error Occurred On The SOAP Server',
                         });
                     }
 
                     var responseClient = resp.return.$value ? JSON.parse(resp.return.$value) : false;
 
-
                     if (responseClient) {
 
                         if (responseClient.status == 'success') {
 
-                            if (params.amount_payable > responseClient.response.balance || responseClient.response.balance == null) {
-                                return res.status(200).send({
-                                    status: 'err',
-                                    message: 'Insufficient Balance !!!',
-                                });
-                            } else {
+                            bcrypt.compare(params.password, responseClient.response.password, (err, resp) => {
 
-                                var token = randtoken.generate(6);
+                                if (err){
+                                    return res.status(200).send({
+                                        status: 'err',
+                                        message: 'Username or password is incorrect'
+                                    });
+                                }
 
-                                var dataUpdate = {
-                                    id: responseClient.response.id.toString(),
-                                    token: token,
-                                    session_id: req.sessionID
-                                };
+                                if (resp) {
 
-                                client.payment(dataUpdate, (err, resp) => {
-                                    if (err) {
-                                        return res.status(500).send({
-                                            status: 'err',
-                                            message: 'An Error Occurred On The SOAP Server',
-                                        });
-                                    }
+                                    let token = createToken(responseClient.response);        
 
-                                    var responseClientUpdate = resp.return.$value ? JSON.parse(resp.return.$value) : false;
+                                    var data = {
+                                        id: token.id,
+                                        token: token.token_encode,
+                                        expiration_date: token.expiration_date
+                                    };
 
-                                    if (responseClientUpdate) {
-                                        if (responseClientUpdate.status == 'err') {
-                                            return res.status(200).send({
-                                                status: response.status,
-                                                message: responseClientUpdate.message
-                                            });
-                                        } else if (responseClientUpdate.status == 'success' &&
-                                            responseClientUpdate.message == 'Token and session_id successfully registered') {
-
-                                            var transporter = nodemailer.createTransport({
-                                                service: 'gmail',
-                                                auth: {
-                                                    user: 'sendtestemail290@gmail.com',
-                                                    pass: 'test.290'
-                                                }
-                                            });
-
-                                            var mailOptions = {
-                                                from: 'sendtestemail290@gmail.com',
-                                                to: responseClient.response.email,
-                                                subject: 'Token',
-                                                html:
-                                                    ` <div> 
-                                                        <h1>CONFIRMATION OF REQUEST FOR PAYMENT</h1> 
-                                                        <h2>Token Generated</h2> 
-                                                        <h3>`+ token + `</h3> 
-                                                    </div>`
-                                            };
-
-                                            transporter.sendMail(mailOptions, function (err, info) {
-                                                if (err) {
-                                                    return res.status(200).send({
-                                                        status: 'err',
-                                                        message: 'Error sending confirmation token, generate new payment order'
-                                                    });
-
-
-                                                } else {
-                                                    var data = {
-                                                        id: responseClient.response.id,
-                                                        amount_payable: params.amount_payable,
-                                                        token: token,
-                                                        session_id: req.sessionID
-    
-                                                    };
-    
-                                                    return res.status(200).send({
-                                                        status: 'success',
-                                                        message: 'Payment In Process, Token Sent To Your email',
-                                                        resp: data
-                                                    });
-                                                }
-                                                
+                                    client.login(data, (err, resp) => {
+                                        if (err) {
+                                            return res.status(500).send({
+                                                status: err,
+                                                message: 'An Error Occurred On The SOAP Server',
                                             });
                                         }
-                                    } else {
-                                        return res.status(500).send({
-                                            status: 'err',
-                                            message: 'An Error Occurred On The SOAP Server',
-                                        });
-                                    }
-                                });
-                            }
+
+                                        var responseClient = resp.return.$value ? JSON.parse(resp.return.$value) : false;
+
+                                        if(responseClient) {
+
+                                            if (responseClient.status == 'success') { 
+
+                                                return res.status(200).send({
+                                                    status: 'success',
+                                                    message: responseClient.message,
+                                                    token : responseClient.token
+                                                });
+
+                                            } else if (responseClient.status == 'err') {
+                                                return res.status(200).send({
+                                                    status: 'err',
+                                                    message: responseClient.message
+                                                });
+                                            }
+
+                                        } else {
+                                            return res.status(500).send({
+                                                status: 'err',
+                                                message: 'An Error Occurred On The SOAP Server',
+                                            });
+                                        }
+                                    });
+                                           
+                                } else {
+                                    return res.status(200).send({
+                                        status: 'err',
+                                        message: 'Username or password is incorrect'
+                                    });
+                                }
+                            });
 
                         } else if (responseClient.status == 'err') {
                             return res.status(200).send({
@@ -217,10 +132,253 @@ var controller = {
                             message: 'An Error Occurred On The SOAP Server',
                         });
                     }
+                
+                });
+            });
+
+        } else {
+            return res.status(200).send({
+                status: 'error',
+                message: 'Data Not Validated'
+            });
+        }
+
+    },
+    registerCustomer: function (req, res) {
+        
+        var params = req.body;
+        try {
+
+            var validate_email = !validator.isEmpty(params.email);
+            var validate_password = !validator.isEmpty(params.password);
+            var validate_dni = !validator.isEmpty(params.dni);
+            var validate_name = !validator.isEmpty(params.name);
+            var validate_last_name = !validator.isEmpty(params.last_name);
+            var validate_phone = !validator.isEmpty(params.phone);
+
+        } catch (err) {
+            return res.status(200).send({
+                status: 'err',
+                message: 'Missing Data To Send'
+            });
+        }
+        if (validate_email && validate_password && validate_dni && 
+            validate_name && validate_last_name && validate_phone) {
+            var data = {
+                email: params.email,
+                password : bcrypt.hashSync(params.password,8),
+                dni: params.dni,
+                name: params.name,
+                last_name: params.last_name,
+                phone: params.phone.replace(/[-+()\s]/g, '')
+            };
+            CreateSoapClient.soapServer(data, res, 'registerCustomer');
+        } else {
+            return res.status(200).send({
+                status: 'err',
+                message: 'Data Not Validated'
+            });
+        }
+    },
+    rechargeWallet: function (req, res) {
+        var params = req.body;
+        var token = req.headers.authorization.split(" ")[1];
+        try {
+            var validate_dni = !validator.isEmpty(params.dni);
+            var validate_phone = !validator.isEmpty(params.phone);
+            var validate_balance = !validator.isEmpty(params.balance);
+            var validate_token = !validator.isEmpty(token);
+        } catch (err) {
+            return res.status(200).send({
+                status: 'err',
+                message: 'Missing Data To Send'
+            });
+        }
+        if (validate_dni && validate_phone && validate_balance && validate_token) {
+            if(params.balance != 0){
+                var data = {
+                    dni: params.dni,
+                    phone: params.phone.replace(/[-+()\s]/g, ''),
+                    balance: params.balance,
+                    token: token
+                };
+                CreateSoapClient.soapServer(data, res, 'rechargeWallet');
+            } else {
+                return res.status(200).send({
+                    status: 'err',
+                    message: 'The amount to recharge must be greater than zero'
+                });
+            }
+            
+        } else {
+            return res.status(200).send({
+                status: 'err',
+                message: 'Data Not Validated'
+            });
+        }
+    },
+    payment: function (req, res) {
+        var params = req.body;
+        var token = req.headers.authorization.split(" ")[1];
+        try {
+            var validate_dni = !validator.isEmpty(params.dni);
+            var validate_phone = !validator.isEmpty(params.phone);
+            var validate_amount_payable = !validator.isEmpty(params.amount_payable);
+            var validate_token = !validator.isEmpty(token);
+        } catch (err) {
+            return res.status(200).send({
+                status: 'err',
+                message: 'Missing Data To Send'
+            });
+        }
+
+        if (validate_dni && validate_phone && validate_amount_payable && validate_token) {
+
+            if(params.amount_payable != 0){
+
+                soap.createClient(urlWsdlDoc, options, (err, client) => {
+                    var data = {
+                        dni: params.dni,
+                        phone: params.phone.replace(/[-+()\s]/g, ''),
+                        amount_payable: params.amount_payable,
+                        token: token
+                    };
+
+                    if (err) {
+                        return res.status(404).send({
+                            status: 'err',
+                            message: 'Configuration File Not Found .wsdl'
+                        });
+                    }
+
+                    client.payment(data, (err, resp) => {
+                        if (err) {
+                            return res.status(500).send({
+                                status: 'err',
+                                message: 'An Error Occurred On The SOAP Server',
+                            });
+                        }
+
+                        var responseClient = resp.return.$value ? JSON.parse(resp.return.$value) : false;
+
+                        if (responseClient) {
+
+                            if (responseClient.status == 'success') {
+
+                                if (params.amount_payable > responseClient.response.balance || responseClient.response.balance == null) {
+                                    return res.status(200).send({
+                                        status: 'err',
+                                        message: 'Insufficient Balance !!!',
+                                    });
+                                } else {
+
+                                    var token_email = randtoken.generate(6);
+
+                                    var dataUpdate = {
+                                        id: responseClient.response.id.toString(),
+                                        token_email: bcrypt.hashSync(token_email,8),
+                                        session_id: req.sessionID,
+                                        token: token
+                                    };
+
+                                    client.payment(dataUpdate, (err, resp) => {
+                                        if (err) {
+                                            return res.status(500).send({
+                                                status: 'err',
+                                                message: 'An Error Occurred On The SOAP Server',
+                                            });
+                                        }
+
+                                        var responseClientUpdate = resp.return.$value ? JSON.parse(resp.return.$value) : false;
+
+                                        if (responseClientUpdate) {
+                                            if (responseClientUpdate.status == 'err') {
+                                                return res.status(200).send({
+                                                    status: response.status,
+                                                    message: responseClientUpdate.message
+                                                });
+                                            } else if (responseClientUpdate.status == 'success' &&
+                                                responseClientUpdate.message == 'Token and session_id successfully registered') {
+
+                                                var transporter = nodemailer.createTransport({
+                                                    service: 'gmail',
+                                                    auth: {
+                                                        user: 'sendtestemail290@gmail.com',
+                                                        pass: 'test.290'
+                                                    }
+                                                });
+
+                                                var mailOptions = {
+                                                    from: 'sendtestemail290@gmail.com',
+                                                    to: responseClient.response.email,
+                                                    subject: 'Token',
+                                                    html:
+                                                        ` <div> 
+                                                            <h1>CONFIRMATION OF REQUEST FOR PAYMENT</h1> 
+                                                            <h2>Token Generated</h2> 
+                                                            <h3>`+ token_email + `</h3> 
+                                                        </div>`
+                                                };
+
+                                                transporter.sendMail(mailOptions, function (err, info) {
+                                                    if (err) {
+                                                        return res.status(200).send({
+                                                            status: 'err',
+                                                            message: 'Error sending confirmation token, generate new payment order'
+                                                        });
+
+
+                                                    } else {
+                                                        var data = {
+                                                            id: responseClient.response.id.toString(),
+                                                            amount_payable: params.amount_payable,
+                                                            token_email: token_email,
+                                                            session_id: req.sessionID
+        
+                                                        };
+        
+                                                        return res.status(200).send({
+                                                            status: 'success',
+                                                            message: 'Payment In Process, Token Sent To Your email',
+                                                            resp: data
+                                                        });
+                                                    }
+                                                    
+                                                });
+                                            }
+                                        } else {
+                                            return res.status(500).send({
+                                                status: 'err',
+                                                message: 'An Error Occurred On The SOAP Server',
+                                            });
+                                        }
+                                    });
+                                }
+
+                            } else if (responseClient.status == 'err') {
+                                return res.status(200).send({
+                                    status: 'err',
+                                    message: responseClient.message
+                                });
+                            }
+
+                        } else {
+                            return res.status(500).send({
+                                status: 'err',
+                                message: 'An Error Occurred On The SOAP Server',
+                            });
+                        }
+
+                    });
 
                 });
 
-            });
+            } else {
+                return res.status(200).send({
+                    status: 'err',
+                    message: 'Amount to pay must be greater than zero'
+                });
+            }
 
         } else {
             return res.status(200).send({
@@ -231,18 +389,22 @@ var controller = {
     },
     confirmPayment: function (req, res) {
         var params = req.body;
+        var token = req.headers.authorization.split(" ")[1];
+
         try {
             var validate_id = !validator.isEmpty(params.id);
             var validate_amount_payable = !validator.isEmpty(params.amount_payable);
-            var validate_token = !validator.isEmpty(params.token);
+            var validate_token_email = !validator.isEmpty(params.token_email);
             var validate_session_id = !validator.isEmpty(params.session_id);
+            var validate_token = !validator.isEmpty(token);
+            
         } catch (err) {
             return res.status(200).send({
                 status: 'err',
                 message: 'Missing data to send'
             });
         }
-        if (validate_id && validate_amount_payable && validate_token && validate_session_id) {
+        if (validate_id && validate_amount_payable && validate_token_email && validate_session_id && validate_token) {
 
             soap.createClient(urlWsdlDoc, options, (err, client) => {
 
@@ -253,58 +415,78 @@ var controller = {
                     });
                 }
 
-                var dataGet = {
-                    id: params.id
+                var data = {
+                    id: params.id,
+                    token: token
                 };
 
-                client.confirmPayment(dataGet, (err, resp) => {
+                client.confirmPayment(data, (err, resp) => {
                     if (err) {
                         return res.status(500).send({
                             status: 'err',
                             message: 'An error occurred on the SOAP server'
                         });
-                    }
+                    }  
 
                     var responseClient = resp.return.$value ? JSON.parse(resp.return.$value) : false;
 
-                    if (responseClient.response.token == params.token
-                        && responseClient.response.session_id == params.session_id) {
+                    if (responseClient) {
 
-                        let balanceUpdate = parseFloat(responseClient.response.balance) - parseFloat(params.amount_payable);
+                        if (responseClient.status == 'success') {
 
-                        var dataUpdate = {
-                            id: responseClient.response.id,
-                            balance: balanceUpdate,
-                            token: null,
-                            session_id: null
-                        };
+                            if (responseClient.response.token_email != null && bcrypt.compareSync(params.token_email, responseClient.response.token_email)
+                                && responseClient.response.session_id == params.session_id) {
 
-                        client.confirmPayment(dataUpdate, (err, resp) => {
-                            if (err) {
-                                return res.status(500).send({
-                                    status: 'err',
-                                    message: 'An error occurred on the SOAP server',
-                                });
-                            }
+                                let balanceUpdate = parseFloat(responseClient.response.balance) - parseFloat(params.amount_payable);
 
-                            var response = resp.return.$value ? JSON.parse(resp.return.$value) : false;
+                                var dataUpdate = {
+                                    id: responseClient.response.id,
+                                    token: token,
+                                    balance: balanceUpdate,
+                                    token_email: null,
+                                    session_id: null
+                                };
 
-                            if (response) {
-                                return res.status(200).send({
-                                    status: response.status,
-                                    message: response.message
+                                client.confirmPayment(dataUpdate, (err, resp) => {
+                                    if (err) {
+                                        return res.status(500).send({
+                                            status: 'err',
+                                            message: 'An error occurred on the SOAP server',
+                                        });
+                                    }
+
+                                    var response = resp.return.$value ? JSON.parse(resp.return.$value) : false;
+                                    
+                                    if (response) {
+                                        return res.status(200).send({
+                                            status: response.status,
+                                            message: response.message
+                                        });
+                                    } else {
+                                        return res.status(500).send({
+                                            status: 'err',
+                                            message: 'An error occurred on the SOAP server',
+                                        });
+                                    }
                                 });
                             } else {
-                                return res.status(500).send({
+                                return res.status(200).send({
                                     status: 'err',
-                                    message: 'An error occurred on the SOAP server',
+                                    message: 'Error validating token'
                                 });
                             }
-                        });
-                    } else {
-                        return res.status(200).send({
+
+                        } else if (responseClient.status == 'err') {
+                            return res.status(200).send({
+                                status: 'err',
+                                message: responseClient.message
+                            });
+                        }
+                    }
+                    else {
+                        return res.status(500).send({
                             status: 'err',
-                            message: 'Error validating token'
+                            message: 'An Error Occurred On The SOAP Server',
                         });
                     }
                 });
@@ -319,6 +501,7 @@ var controller = {
     },
     checkBalance: function (req, res) {
         var params = req.params;
+        var token = req.headers.authorization.split(" ")[1];
         try {
             var validate_dni = !validator.isEmpty(params.dni);
             var validate_phone = !validator.isEmpty(params.phone);
@@ -329,11 +512,40 @@ var controller = {
             });
         }
         if (validate_dni && validate_phone) {
-            var dataGet = {
+            var data = {
                 dni: params.dni,
-                phone: params.phone
+                phone: params.phone.replace(/[-+()\s]/g, ''),
+                token: token
             };
-            CutomerService.soapServer(dataGet, res, 'checkBalance');
+            CreateSoapClient.soapServer(data, res, 'checkBalance');
+        } else {
+            return res.status(200).send({
+                status: 'err',
+                message: 'Data Not Validated'
+            });
+        }
+
+    },
+    logout: function (req, res){
+
+        var token = req.headers.authorization.split(" ")[1];
+
+        try {
+            var validate_token = !validator.isEmpty(token);
+        } catch (err) {
+            return res.status(200).send({
+                status: 'err',
+                message: 'Missing Data To Send'
+            });
+        }
+        if (validate_token) {
+            var payload = decodeToken(token);
+            var data = {
+                id: payload.id,
+                token: token,
+                expiration_date: payload.expiration_date
+            };
+            CreateSoapClient.soapServer(data, res, 'logout');
         } else {
             return res.status(200).send({
                 status: 'err',
