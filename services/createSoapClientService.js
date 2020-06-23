@@ -63,8 +63,8 @@ exports.soapServer  = ((data,res,clientServer) => {
                     client.checkBalance(data, (err, resp) => {
                         if(err) {
                             return res.status(500).send({
-                                status: 'err1',
-                                message: 'An Error Occurred On The SOAP Server'
+                                status: 'err',
+                                message: err//An Error Occurred On The SOAP Server'
                             });
                         }
                         var response = resp.return.$value ? JSON.parse(resp.return.$value) : false;
@@ -72,11 +72,11 @@ exports.soapServer  = ((data,res,clientServer) => {
                             if(response.balance == null && response.status == 'success'){
                                 return res.status(200).send({
                                     status: response.status,
-                                    balance:0.00
+                                    balance:0.00,
+                                    activate: response.activate
                                 });
                             
-                            } else if(response.message == 'Customer Not Registered') {
-                                console.log(response);
+                            } else if(response.status == 'err') {
                                 return res.status(200).send({
                                     status: response.status,
                                     message: response.message
@@ -90,17 +90,48 @@ exports.soapServer  = ((data,res,clientServer) => {
                             
                         } else{
                             return res.status(500).send({
-                                status: 'err2',
+                                status: 'err',
                                 message: 'An Error Occurred On The SOAP Server',
                             });
                         }
                     });
                   break
-              }
+                  case 'logout':
+                    client.logout(data, (err, resp) => {
+                        if(err) {
+                            return res.status(500).send({
+                                status: 'err',
+                                message: 'An Error Occurred On The SOAP Server'
+                            });
+                        }
+                        var response = resp.return.$value ? JSON.parse(resp.return.$value) : false;
+                        if(response) {
+                            if(response.status == 'err'){
+                                return res.status(200).send({
+                                    status: response.status,
+                                    message: response.message
+                                });
+                            
+                            } else {
+                                return res.status(200).send({
+                                    status: response.status,
+                                    message: response.message
+                                });
+                            } 
+                            
+                        } else{
+                            return res.status(500).send({
+                                status: 'err',
+                                message: 'An Error Occurred On The SOAP Server',
+                            });
+                        }
+                    });
+                break
+            }
         }); 
     } catch (e) {    
         return res.status(500).send({
-            status: 'err3',
+            status: 'err',
             message: 'An Error Occurred On The SOAP Server'
         });
     }
